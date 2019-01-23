@@ -9,10 +9,13 @@ from app import app
 from app.forms import LoginForm
 from werkzeug.utils import secure_filename
 
+
+#Check if extensions is allowed 
 def allowed_file(filename):
     return '.' in filename and \
            filename.rsplit('.', 1)[1] in app.config['ALLOWED_EXTENSIONS']
 
+#Home page
 @app.route('/')
 @app.route('/index')
 def index():
@@ -32,21 +35,29 @@ def upload_file():
 @app.route('/return-files/<filename>')
 def return_cleaned_file(filename):
     abs_file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+	#Encode uploaded file 
     with open(abs_file_path, 'rb') as file_to_send:
         encoded_file = base64.b64encode(file_to_send.read()).decode('ascii')
-    data = {"request":[{"protocol_version": "1.1","request_name": "UploadFile","file_enc_data":encoded_file,"file_orig_name": filename,"scrub_options": {"scrub_method": 2}}]}
+    #Create reuest
+	data = {"request":[{"protocol_version": "1.1","request_name": "UploadFile","file_enc_data":encoded_file,"file_orig_name": filename,"scrub_options": {"scrub_method": 2}}]}
     with open("request_1.json", "w", encoding='utf8') as write_file:
         json.dump(data, write_file, ensure_ascii=False)
     data_request = open('./request_1.json', 'rb').read()
-    res = requests.post(url=app.config['URL'], data=data_request,headers={'Content-Type': 'application/octet-stream'},verify=False)
-    resp = res.json()
+    #Send reuest
+	res = requests.post(url=app.config['URL'], data=data_request,headers={'Content-Type': 'application/octet-stream'},verify=False)
+    #Parse responce
+	resp = res.json()
     json_data = json.dumps(resp)
     parsed_json = json.loads(json_data)
-    cleaned_file_enc = parsed_json["response"][0]["scrub"]["file_enc_data"]
-    cleaned_file_dec = base64.b64decode(cleaned_file_enc)
-    output = open(app.config['CLEANED_FOLDER']+filename+".cleaned.pdf", "wb")
+    #Get encoded file from json
+	cleaned_file_enc = parsed_json["response"][0]["scrub"]["file_enc_data"]
+    #Decode cleaned file
+	cleaned_file_dec = base64.b64decode(cleaned_file_enc)
+    #Save cleanded file
+	output = open(app.config['CLEANED_FOLDER']+filename+".cleaned.pdf", "wb")
     output.write(cleaned_file_dec)
     output.close()
+	#Send cleaned file to user
     return send_file(app.config['CLEANED_FOLDER']+filename+".cleaned.pdf", mimetype='application/pdf', as_attachment=True)
 
 @app.route('/login', methods=['GET', 'POST'])
