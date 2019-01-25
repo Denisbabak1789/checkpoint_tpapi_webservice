@@ -1,5 +1,10 @@
 {% extends "base.html" %}
 
 {% block content %}
-    <h1>Hi, {{ user.username }}!</h1>
+    <h1>Hi, {{ current_user.username }}!</h1>
+    <div><a href="{{ url_for('check_files') }}">Check files status</a> </div>
+
+    {% for files in files %}
+    <div><b>filename:</b> {{ files.filename }}   <b>status:</b> {{ files.te_status }}  <b>verdict:</b> {{ files.te_verdict }}</div>
+    {% endfor %}
 {% endblock %}
