@@ -1,10 +1,44 @@
 {% extends "base.html" %}
 
 {% block content %}
-    <h1>Hi, {{ current_user.username }}!</h1>
-    <div><a href="{{ url_for('check_files') }}">Check files status</a> </div>
+ <head>
+<style>
+table {
+  font-family: arial, sans-serif;
+  border-collapse: collapse;
+  width: 100%;
+}
 
-    {% for files in files %}
-    <div><b>filename:</b> {{ files.filename }}   <b>status:</b> {{ files.te_status }}  <b>verdict:</b> {{ files.te_verdict }}</div>
-    {% endfor %}
+td, th {
+  border: 1px solid #dddddd;
+  text-align: left;
+  padding: 8px;
+}
+
+tr:nth-child(even) {
+  background-color: #dddddd;
+}
+</style>
+</head>
+<body>
+    <h1>Hi, {{ current_user.username }}!</h1>
+    <table>
+	<tr>
+		<th>Filename</th>
+		<th>Status</th>
+		<th>Verdict</th>
+		<th>Download cleaned file</th>
+	  </tr>
+    {% for files in files[::-1] %}
+	 <tr>
+		<td>{{ files.filename }}</td>
+		<td>{{ files.te_status }}</td>
+		<td>{{ files.te_verdict }}</td>
+		<td><a href="{{ url_for('download_file',filename=files.filename)  }}">Download</a></td>
+	 </tr>
+     {% endfor %}
+
+    </table>
+
+</body>
 {% endblock %}

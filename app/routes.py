@@ -10,7 +10,7 @@ from app.forms import LoginForm, RegistrationForm
 from werkzeug.utils import secure_filename
 from werkzeug.urls import url_parse
 from flask_login import current_user, login_user, logout_user, login_required
-from app.models import User, Post, Files_te
+from app.models import User, Files_te
 
 def allowed_file(filename):
     return '.' in filename and \
@@ -20,38 +20,43 @@ def allowed_file(filename):
 @app.route('/index')
 @login_required
 def index():
-    files = Files_te.query.all()
+    current_username = User.query.filter_by(username=current_user.username).first()
+    files = Files_te.query.filter_by(user_id=current_username.id).all()
+    check_files()
     return render_template('index.html', title='Home', files=files)
 
 @app.route('/check_files')
 def check_files():
-    #get all files with status UPLOAD_SUCCESS
-    f = Files_te.query.filter_by(te_status='UPLOAD_SUCCESS').all()
-    #Send query to check if status was changed
-    for p in f:
-        data = {"request":[{"protocol_version": "1.1", "request_name": "QueryFile", "md5": p.md5, "features": ["te"],"te": {} }]}
-        with open("request_te_check.json", "w", encoding='utf8') as write_file:
-            json.dump(data, write_file, ensure_ascii=False)
-        data_request = open('./request_te_check.json', 'rb').read()
-        res = requests.post(url=app.config['URL'],
-                            data=data_request,
-                            headers={'Content-Type': 'application/octet-stream'},
-                            verify=False)
-        resp = res.json()
-        json_data = json.dumps(resp)
-        parsed_json = json.loads(json_data)
-        #Get current status
-        te_status = parsed_json["response"][0]["te"]['status']['label']
-        if te_status == "PENDING":
-            te_verdict = "Unknown"
-        else:
-            te_verdict = parsed_json["response"][0]["te"]["te"]["combined_verdict"]
-        #Change status and verdict in db
-        fn = Files_te.query.filter_by(md5=p.md5).first()
-        fn.te_status = te_status
-        fn.te_verdict = te_verdict
-        db.session.commit()
+    files_status = ("UPLOAD_SUCCESS", "PENDING")
+    for k in files_status:
+        #get all files with status UPLOAD_SUCCESS
+        f = Files_te.query.filter_by(te_status=k).all()
+        #Send query to check if status was changed
+        for p in f:
+            data = {"request":[{"protocol_version": "1.1", "request_name": "QueryFile", "md5": p.md5, "features": ["te"],"te": {} }]}
+            with open("request_te_check.json", "w", encoding='utf8') as write_file:
+                json.dump(data, write_file, ensure_ascii=False)
+            data_request = open('./request_te_check.json', 'rb').read()
+            res = requests.post(url=app.config['URL'],
+                                data=data_request,
+                                headers={'Content-Type': 'application/octet-stream'},
+                                verify=False)
+            resp = res.json()
+            json_data = json.dumps(resp)
+            parsed_json = json.loads(json_data)
+            #Get current status
+            te_status = parsed_json["response"][0]["te"]['status']['label']
+            if te_status == "FOUND":
+                te_verdict = parsed_json["response"][0]["te"]["te"]["combined_verdict"]
+            else:
+                te_verdict = "Unknown"
+            #Change status and verdict in db
+            fn = Files_te.query.filter_by(md5=p.md5).first()
+            fn.te_status = te_status
+            fn.te_verdict = te_verdict
+            db.session.commit()
     return redirect(url_for('index'))
+
 
 @app.route('/upload_file', methods=['GET', 'POST'])
 @login_required
@@ -101,9 +106,15 @@ def return_cleaned_file(filename):
         te_verdict = parsed_json["response"][0]["te"]["te"]["combined_verdict"]
     else:
         te_verdict = "Unknown"
-    files_te_info = Files_te(filename=filename, md5=te_md5, te_status=te_status, te_verdict=te_verdict)
+    current_username = User.query.filter_by(username=current_user.username).first()
+    files_te_info = Files_te(filename=filename, md5=te_md5, te_status=te_status, te_verdict=te_verdict, user_id=current_username.id)
+    #Write to db
     db.session.add(files_te_info)
     db.session.commit()
+    return redirect(url_for('index'))
+
+@app.route('/download_file/<filename>')
+def download_file(filename):
     return send_file(app.config['CLEANED_FOLDER']+filename+".cleaned.pdf", mimetype='application/pdf', as_attachment=True)
 
 @app.route('/login', methods=['GET', 'POST'])
