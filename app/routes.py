@@ -65,13 +65,15 @@ def upload_file():
         file = request.files['file']
         if file and allowed_file(file.filename):
             filename = secure_filename(file.filename)
-            file.save(app.config['UPLOAD_FOLDER'] + filename)
+            if not os.path.exists(os.getcwd()+'/uploads'):
+                os.mkdir(os.getcwd()+'/uploads')
+            file.save(os.getcwd()+'/uploads/' + filename)
             return redirect(url_for('return_cleaned_file',filename=filename))
     return render_template('upload_file.html')
 
 @app.route('/return-files/<filename>')
 def return_cleaned_file(filename):
-    abs_file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    abs_file_path = os.path.join(os.getcwd()+'/uploads/', filename)
     with open(abs_file_path, 'rb') as file_to_send:
         encoded_file = base64.b64encode(file_to_send.read()).decode('ascii')
     data = {"request":[{
@@ -97,7 +99,9 @@ def return_cleaned_file(filename):
     parsed_json = json.loads(json_data)
     cleaned_file_enc = parsed_json["response"][0]["scrub"]["file_enc_data"]
     cleaned_file_dec = base64.b64decode(cleaned_file_enc)
-    output = open(app.config['CLEANED_FOLDER']+filename+".cleaned.pdf", "wb")
+    if not os.path.exists(os.getcwd()+'/cleaned_files/'):
+        os.mkdir(os.getcwd()+'/cleaned_files/')
+    output = open(os.getcwd()+'/cleaned_files/'+filename+".cleaned.pdf", "wb")
     output.write(cleaned_file_dec)
     output.close()
     te_md5 = parsed_json["response"][0]["te"]['md5']
@@ -115,7 +119,7 @@ def return_cleaned_file(filename):
 
 @app.route('/download_file/<filename>')
 def download_file(filename):
-    return send_file(app.config['CLEANED_FOLDER']+filename+".cleaned.pdf", mimetype='application/pdf', as_attachment=True)
+    return send_file(os.getcwd()+'/cleaned_files/'+filename+".cleaned.pdf", mimetype='application/pdf', as_attachment=True)
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
