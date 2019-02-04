@@ -21,8 +21,8 @@ class User(UserMixin, db.Model):
 
 class Files_te(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    filename = db.Column(db.String(150), index=True, unique=True)
-    md5 = db.Column(db.String(40), index=True, unique=True)
+    filename = db.Column(db.String(150), index=True)
+    md5 = db.Column(db.String(40), index=True)
     te_verdict = db.Column(db.String(50))
     te_status = db.Column(db.String(150))
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'))

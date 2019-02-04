@@ -1,8 +1,5 @@
 # -*- coding: utf-8 -*- 
-import os
-import json
-import requests
-import base64
+import os, json, requests, base64, hashlib
 
 from flask import Flask, render_template, flash, redirect, url_for, request, send_from_directory, send_file
 from app import app, db
@@ -31,29 +28,32 @@ def check_files(user_id):
     for f in Files_te.query.filter(Files_te.user_id==user_id).filter(Files_te.te_status!='FOUND').all():
         if f is not None:
             #Send query to get new status of files
-            #Create request for based on md5
             data = {"request":[{"protocol_version": "1.1", "request_name": "QueryFile", "md5": f.md5, "features": ["te"],"te": {} }]}
             #Encode in json
             request_json = json.dumps(data)
-            print(request_json)
+            
             #Send request and get response
             res = requests.post(url=app.config['URL'], data=request_json, headers={'Content-Type': 'application/json'}, verify=False)
+            
             #Parce response
             resp = res.json()
-            print(resp)
+            #print(resp)
             json_data = json.dumps(resp)
             parsed_json = json.loads(json_data)
+            
             #Get current te status
             te_status = parsed_json["response"][0]["te"]['status']['label']
             if te_status == "FOUND":
                 te_verdict = parsed_json["response"][0]["te"]["te"]["combined_verdict"]
             else:
                 te_verdict = "Unknown"
-            #Change status and verdict in db
-            fn = Files_te.query.filter_by(md5=f.md5).first()
+                
+            #Write changed status and verdict in db
+            fn = Files_te.query.filter(Files_te.md5==f.md5,Files_te.user_id==user_id).first()
             fn.te_status = te_status
             fn.te_verdict = te_verdict
             db.session.commit()
+    return redirect(url_for('index'))
 
 
 @app.route('/upload_file', methods=['GET', 'POST'])
@@ -70,32 +70,24 @@ def upload_file():
                 if not os.path.exists(os.getcwd()+'/uploads'):
                     os.mkdir(os.getcwd()+'/uploads')
                 file.save(os.getcwd()+'/uploads/'+filename)
- #           md5_hash = hashlib.md5()
- #           with open(os.getcwd()+'/uploads/'+filename,"rb") as fmd:
- #               # Read and update hash in chunks of 4K
- #               for byte_block in iter(lambda: fmd.read(4096),b""):
- #                   md5_hash.update(byte_block)
- #               print(md5_hash.hexdigest())
- #               f = Files_te.query.filter_by(md5=md5_hash.hexdigest()).all()
- #           print("md5 in db:")
- #           print(f) 
- #           if f is None:
- #               print("file not found in db")
- #               return redirect(url_for('return_cleaned_file',filename=filename))
- #           else:
- #               print("file is laready exist in db")
- #               return redirect(url_for('index'))
                 print("file was saved")
                 return redirect(url_for('return_cleaned_file',filename=filename)) 
             else:
                 return redirect(url_for('index'))
+        else:
+            flash("File type isn't supported")
     return render_template('upload_file.html')
 
 @app.route('/return-files/<filename>')
 def return_cleaned_file(filename):
-#    abs_file_path = os.path.join(os.getcwd()+'/uploads/', filename)
     with open(os.getcwd()+'/uploads/'+filename, 'rb') as file_to_send:
         encoded_file = base64.b64encode(file_to_send.read()).decode('ascii')
+    #Check if file isn't empty
+    if encoded_file == "":
+        print("File is empty")
+        flash('File is empty! Please, try again!')
+        return redirect(url_for('upload_file'))
+    
     data = {"request":[{
             "protocol_version": "1.1",
             "request_name": "UploadFile",
@@ -109,18 +101,45 @@ def return_cleaned_file(filename):
                 }
            }]
            }
+    #Serialize data to json
     request_json = json.dumps(data)
+    #Generate API request
     res = requests.post(url=app.config['URL'],data=request_json,headers={'Content-Type':'application/octet-stream'},verify=False) 
+    #Get application/json data
     resp = res.json()
+    #Encode into json
     json_data = json.dumps(resp)
+    #Decode from json
     parsed_json = json.loads(json_data)
+    
+    #Check if response have scrub and te options
+    try:
+        resp_scrub = parsed_json["response"][0]["scrub"]
+        resp_te = parsed_json["response"][0]["te"]
+    except KeyError as err:
+        print("Response is empty. Error: ",err)
+        flash("Couldn't get response, please, try again!")
+        return redirect(url_for('upload_file'))
+    
+    #Check scrub response
+    resp_scrub_result = parsed_json["response"][0]["scrub"]["scrub_result"]
+    if resp_scrub_result != 0:
+        print("Scrub failed")
+        flash("Couldn't clean the file, please try again")
+        return redirect(url_for('upload_file'))
+    
+    #Get cleaned file data
     cleaned_file_enc = parsed_json["response"][0]["scrub"]["file_enc_data"]
+    #Decode from base64
     cleaned_file_dec = base64.b64decode(cleaned_file_enc)
+    #Is there “cleaned file” dir?
     if not os.path.exists(os.getcwd()+'/cleaned_files/'):
         os.mkdir(os.getcwd()+'/cleaned_files/')
+    #Save cleaned file into dir
     output = open(os.getcwd()+'/cleaned_files/'+filename+".cleaned.pdf", "wb")
     output.write(cleaned_file_dec)
     output.close()
+    
     te_md5 = parsed_json["response"][0]["te"]['md5']
     te_status = parsed_json["response"][0]["te"]['status']['label']
     if te_status == "FOUND":
