@@ -12,6 +12,7 @@ from werkzeug.urls import url_parse
 from flask_login import current_user, login_user, logout_user, login_required
 from app.models import User, Files_te
 
+
 def allowed_file(filename):
     return '.' in filename and \
            filename.rsplit('.', 1)[1] in app.config['ALLOWED_EXTENSIONS']
@@ -21,41 +22,38 @@ def allowed_file(filename):
 @login_required
 def index():
     current_username = User.query.filter_by(username=current_user.username).first()
+    check_files(current_username.id)
     files = Files_te.query.filter_by(user_id=current_username.id).all()
-    check_files()
     return render_template('index.html', title='Home', files=files)
 
-@app.route('/check_files')
-def check_files():
-    files_status = ("UPLOAD_SUCCESS", "PENDING")
-    for k in files_status:
-        #get all files with status UPLOAD_SUCCESS
-        f = Files_te.query.filter_by(te_status=k).all()
-        #Send query to check if status was changed
-        for p in f:
-            data = {"request":[{"protocol_version": "1.1", "request_name": "QueryFile", "md5": p.md5, "features": ["te"],"te": {} }]}
-            with open("request_te_check.json", "w", encoding='utf8') as write_file:
-                json.dump(data, write_file, ensure_ascii=False)
-            data_request = open('./request_te_check.json', 'rb').read()
-            res = requests.post(url=app.config['URL'],
-                                data=data_request,
-                                headers={'Content-Type': 'application/octet-stream'},
-                                verify=False)
+def check_files(user_id):
+    #Get all files that have status NOT FOUND
+    for f in Files_te.query.filter(Files_te.user_id==user_id).filter(Files_te.te_status!='FOUND').all():
+        if f is not None:
+            #Send query to get new status of files
+            #Create request for based on md5
+            data = {"request":[{"protocol_version": "1.1", "request_name": "QueryFile", "md5": f.md5, "features": ["te"],"te": {} }]}
+            #Encode in json
+            request_json = json.dumps(data)
+            print(request_json)
+            #Send request and get response
+            res = requests.post(url=app.config['URL'], data=request_json, headers={'Content-Type': 'application/json'}, verify=False)
+            #Parce response
             resp = res.json()
+            print(resp)
             json_data = json.dumps(resp)
             parsed_json = json.loads(json_data)
-            #Get current status
+            #Get current te status
             te_status = parsed_json["response"][0]["te"]['status']['label']
             if te_status == "FOUND":
                 te_verdict = parsed_json["response"][0]["te"]["te"]["combined_verdict"]
             else:
                 te_verdict = "Unknown"
             #Change status and verdict in db
-            fn = Files_te.query.filter_by(md5=p.md5).first()
+            fn = Files_te.query.filter_by(md5=f.md5).first()
             fn.te_status = te_status
             fn.te_verdict = te_verdict
             db.session.commit()
-    return redirect(url_for('index'))
 
 
 @app.route('/upload_file', methods=['GET', 'POST'])
@@ -65,35 +63,54 @@ def upload_file():
         file = request.files['file']
         if file and allowed_file(file.filename):
             filename = secure_filename(file.filename)
-            if not os.path.exists(os.getcwd()+'/uploads'):
-                os.mkdir(os.getcwd()+'/uploads')
-            file.save(os.getcwd()+'/uploads/' + filename)
-            return redirect(url_for('return_cleaned_file',filename=filename))
+            print(filename)
+            current_username = User.query.filter_by(username=current_user.username).first()
+            f = Files_te.query.filter(Files_te.filename==filename,Files_te.user_id==current_username.id).first()
+            if f is None:
+                if not os.path.exists(os.getcwd()+'/uploads'):
+                    os.mkdir(os.getcwd()+'/uploads')
+                file.save(os.getcwd()+'/uploads/'+filename)
+ #           md5_hash = hashlib.md5()
+ #           with open(os.getcwd()+'/uploads/'+filename,"rb") as fmd:
+ #               # Read and update hash in chunks of 4K
+ #               for byte_block in iter(lambda: fmd.read(4096),b""):
+ #                   md5_hash.update(byte_block)
+ #               print(md5_hash.hexdigest())
+ #               f = Files_te.query.filter_by(md5=md5_hash.hexdigest()).all()
+ #           print("md5 in db:")
+ #           print(f) 
+ #           if f is None:
+ #               print("file not found in db")
+ #               return redirect(url_for('return_cleaned_file',filename=filename))
+ #           else:
+ #               print("file is laready exist in db")
+ #               return redirect(url_for('index'))
+                print("file was saved")
+                return redirect(url_for('return_cleaned_file',filename=filename)) 
+            else:
+                return redirect(url_for('index'))
     return render_template('upload_file.html')
 
 @app.route('/return-files/<filename>')
 def return_cleaned_file(filename):
-    abs_file_path = os.path.join(os.getcwd()+'/uploads/', filename)
-    with open(abs_file_path, 'rb') as file_to_send:
+#    abs_file_path = os.path.join(os.getcwd()+'/uploads/', filename)
+    with open(os.getcwd()+'/uploads/'+filename, 'rb') as file_to_send:
         encoded_file = base64.b64encode(file_to_send.read()).decode('ascii')
     data = {"request":[{
-            "protocol_version": "1.1", 
+            "protocol_version": "1.1",
             "request_name": "UploadFile",
-            "file_enc_data":encoded_file, 
-            "file_orig_name": filename, 
+            "file_enc_data": encoded_file,
+            "file_orig_name": filename,
             "scrub_options": {"scrub_method": 2},
             "te_options": {
                 "file_name": filename,
-                "file_type": "pdf",
                 "features": ["te"],
                 "te": {"rule_id": 1}
-            }   
-        }]
-       }
-    with open("request_1.json", "w", encoding='utf8') as write_file:
-        json.dump(data, write_file, ensure_ascii=False)
-    data_request = open('./request_1.json', 'rb').read()
-    res = requests.post(url=app.config['URL'], data=data_request,headers={'Content-Type': 'application/octet-stream'},verify=False)
+                }
+           }]
+           }
+    request_json = json.dumps(data)
+    res = requests.post(url=app.config['URL'],data=request_json,headers={'Content-Type':'application/octet-stream'},verify=False) 
     resp = res.json()
     json_data = json.dumps(resp)
     parsed_json = json.loads(json_data)
