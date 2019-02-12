@@ -63,14 +63,12 @@ def upload_file():
         file = request.files['file']
         if file and allowed_file(file.filename):
             filename = secure_filename(file.filename)
-            print(filename)
             current_username = User.query.filter_by(username=current_user.username).first()
             f = Files_te.query.filter(Files_te.filename==filename,Files_te.user_id==current_username.id).first()
             if f is None:
                 if not os.path.exists(os.getcwd()+'/uploads'):
                     os.mkdir(os.getcwd()+'/uploads')
                 file.save(os.getcwd()+'/uploads/'+filename)
-                print("file was saved")
                 return redirect(url_for('return_cleaned_file',filename=filename)) 
             else:
                 return redirect(url_for('index'))
@@ -84,7 +82,6 @@ def return_cleaned_file(filename):
         encoded_file = base64.b64encode(file_to_send.read()).decode('ascii')
     #Check if file isn't empty
     if encoded_file == "":
-        print("File is empty")
         flash('File is empty! Please, try again!')
         return redirect(url_for('upload_file'))
     
