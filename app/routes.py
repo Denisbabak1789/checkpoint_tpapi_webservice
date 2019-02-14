@@ -14,6 +14,39 @@ def allowed_file(filename):
     return '.' in filename and \
            filename.rsplit('.', 1)[1] in app.config['ALLOWED_EXTENSIONS']
 
+def tpapi_query(q_type, md5, encoded_file, filename):
+    if q_type == "query_file":
+        data = {"request":[{
+            "protocol_version": "1.1", 
+            "request_name": "QueryFile", 
+            "md5": md5, 
+            "features": ["te"],
+            "te": {} 
+        }] }
+        content_type = "application/json"
+    else:
+        data = {"request":[{
+            "protocol_version": "1.1",
+            "request_name": "UploadFile",
+            "file_enc_data":encoded_file,
+            "file_orig_name": filename,
+            "scrub_options": {"scrub_method": 2},
+            "te_options": {
+                "file_name": filename,
+                "file_type": "pdf",
+                "features": ["te"],
+                "te": {"rule_id": 1}
+                }
+           }] }
+        content_type = "application/octet-stream"  
+    request_json = json.dumps(data)
+    res = requests.post(url=app.config['URL'],data=request_json,headers={'Content-Type':content_type }, verify=False)
+    resp = res.json()
+    json_data = json.dumps(resp)
+    parsed_json = json.loads(json_data)
+    return parsed_json
+
+
 @app.route('/')
 @app.route('/index')
 @login_required
@@ -27,21 +60,8 @@ def check_files(user_id):
     #Get all files that have status NOT FOUND
     for f in Files_te.query.filter(Files_te.user_id==user_id).filter(Files_te.te_status!='FOUND').all():
         if f is not None:
-            #Send query to get new status of files
-            data = {"request":[{"protocol_version": "1.1", "request_name": "QueryFile", "md5": f.md5, "features": ["te"],"te": {} }]}
-            #Encode in json
-            request_json = json.dumps(data)
-            
-            #Send request and get response
-            res = requests.post(url=app.config['URL'], data=request_json, headers={'Content-Type': 'application/json'}, verify=False)
-            
-            #Parce response
-            resp = res.json()
-            #print(resp)
-            json_data = json.dumps(resp)
-            parsed_json = json.loads(json_data)
-            
-            #Get current te status
+            #Request to check files
+            parsed_json = tpapi_query(q_type="query_file", md5=f.md5, encoded_file="", filename="" )
             te_status = parsed_json["response"][0]["te"]['status']['label']
             if te_status == "FOUND":
                 te_verdict = parsed_json["response"][0]["te"]["te"]["combined_verdict"]
@@ -84,32 +104,9 @@ def return_cleaned_file(filename):
     if encoded_file == "":
         flash('File is empty! Please, try again!')
         return redirect(url_for('upload_file'))
-    
-    data = {"request":[{
-            "protocol_version": "1.1",
-            "request_name": "UploadFile",
-            "file_enc_data": encoded_file,
-            "file_orig_name": filename,
-            "scrub_options": {"scrub_method": 2},
-            "te_options": {
-                "file_name": filename,
-                "features": ["te"],
-                "te": {"rule_id": 1}
-                }
-           }]
-           }
-    #Serialize data to json
-    request_json = json.dumps(data)
-    #Generate API request
-    res = requests.post(url=app.config['URL'],data=request_json,headers={'Content-Type':'application/octet-stream'},verify=False) 
-    #Get application/json data
-    resp = res.json()
-    #Encode into json
-    json_data = json.dumps(resp)
-    #Decode from json
-    parsed_json = json.loads(json_data)
-    
-    #Check if response have scrub and te options
+    #Request to upload file
+    parsed_json = tpapi_query(q_type="upload_file", md5="", encoded_file=encoded_file, filename=filename)
+
     try:
         resp_scrub = parsed_json["response"][0]["scrub"]
         resp_te = parsed_json["response"][0]["te"]
@@ -143,6 +140,7 @@ def return_cleaned_file(filename):
         te_verdict = parsed_json["response"][0]["te"]["te"]["combined_verdict"]
     else:
         te_verdict = "Unknown"
+     
     current_username = User.query.filter_by(username=current_user.username).first()
     files_te_info = Files_te(filename=filename, md5=te_md5, te_status=te_status, te_verdict=te_verdict, user_id=current_username.id)
     #Write to db
