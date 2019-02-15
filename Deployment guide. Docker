@@ -1,3 +1,6 @@
+To deploy the app on docker follow this tutorial:
+https://blog.miguelgrinberg.com/post/the-flask-mega-tutorial-part-xix-deployment-on-docker-containers
+
 # Run mysql container
 sudo docker run --name mysql -d -e MYSQL_RANDOM_ROOT_PASSWORD=yes \
     -e MYSQL_DATABASE=scrubbing -e MYSQL_USER=scrubbing \
