@@ -7,7 +7,7 @@ from app.forms import LoginForm, RegistrationForm
 from werkzeug.utils import secure_filename
 from werkzeug.urls import url_parse
 from flask_login import current_user, login_user, logout_user, login_required
-from app.models import User, Files_te
+from app.models import User, Files_te, tpapi
 
 
 def allowed_file(filename):
@@ -61,7 +61,7 @@ def check_files(user_id):
     for f in Files_te.query.filter(Files_te.user_id==user_id).filter(Files_te.te_status!='FOUND').all():
         if f is not None:
             #Request to check files
-            parsed_json = tpapi_query(q_type="query_file", md5=f.md5, encoded_file="", filename="" )
+            parsed_json = tpapi.query_file(md5=f.md5)
             te_status = parsed_json["response"][0]["te"]['status']['label']
             if te_status == "FOUND":
                 te_verdict = parsed_json["response"][0]["te"]["te"]["combined_verdict"]
@@ -105,7 +105,7 @@ def return_cleaned_file(filename):
         flash('File is empty! Please, try again!')
         return redirect(url_for('upload_file'))
     #Request to upload file
-    parsed_json = tpapi_query(q_type="upload_file", md5="", encoded_file=encoded_file, filename=filename)
+    parsed_json = tpapi.upload_file(encoded_file=encoded_file, filename=filename)
 
     try:
         resp_scrub = parsed_json["response"][0]["scrub"]
