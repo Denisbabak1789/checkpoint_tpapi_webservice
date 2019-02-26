@@ -14,39 +14,6 @@ def allowed_file(filename):
     return '.' in filename and \
            filename.rsplit('.', 1)[1] in app.config['ALLOWED_EXTENSIONS']
 
-def tpapi_query(q_type, md5, encoded_file, filename):
-    if q_type == "query_file":
-        data = {"request":[{
-            "protocol_version": "1.1", 
-            "request_name": "QueryFile", 
-            "md5": md5, 
-            "features": ["te"],
-            "te": {} 
-        }] }
-        content_type = "application/json"
-    else:
-        data = {"request":[{
-            "protocol_version": "1.1",
-            "request_name": "UploadFile",
-            "file_enc_data":encoded_file,
-            "file_orig_name": filename,
-            "scrub_options": {"scrub_method": 2},
-            "te_options": {
-                "file_name": filename,
-                "file_type": "pdf",
-                "features": ["te"],
-                "te": {"rule_id": 1}
-                }
-           }] }
-        content_type = "application/octet-stream"  
-    request_json = json.dumps(data)
-    res = requests.post(url=app.config['URL'],data=request_json,headers={'Content-Type':content_type }, verify=False)
-    resp = res.json()
-    json_data = json.dumps(resp)
-    parsed_json = json.loads(json_data)
-    return parsed_json
-
-
 @app.route('/')
 @app.route('/index')
 @login_required
