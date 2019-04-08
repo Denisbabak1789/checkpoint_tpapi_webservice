@@ -1,18 +1,59 @@
 # -*- coding: utf-8 -*- 
 import os, json, requests, base64, hashlib
 
-from flask import Flask, render_template, flash, redirect, url_for, request, send_from_directory, send_file
+from flask import Flask, render_template, flash, redirect, url_for, send_from_directory, send_file
+from flask import request as rq
 from app import app, db
 from app.forms import LoginForm, RegistrationForm
 from werkzeug.utils import secure_filename
 from werkzeug.urls import url_parse
 from flask_login import current_user, login_user, logout_user, login_required
-from app.models import User, Files_te, tpapi
+from app.models import User, Files_te
+from requests.exceptions import ConnectionError
 
 
 def allowed_file(filename):
     return '.' in filename and \
            filename.rsplit('.', 1)[1] in app.config['ALLOWED_EXTENSIONS']
+
+#api request format
+def request(data, content_type):
+    request_json = json.dumps(data)
+    res = requests.post(url=app.config['URL'],data=request_json,headers={'Content-Type':content_type }, verify=False)
+    resp = res.json()
+    json_data = json.dumps(resp)
+    parsed_json = json.loads(json_data)
+    return parsed_json
+
+class tpapi:
+    #api requests
+    def query_file(md5):
+        data = {"request":[{
+            "protocol_version": "1.1", 
+            "request_name": "QueryFile", 
+            "md5": md5, 
+            "features": ["te"],
+            "te": {} 
+        }] }
+        content_type = "application/json"
+        return request(data, content_type)
+    
+    def upload_file(encoded_file, filename):
+        data = {"request":[{
+            "protocol_version": "1.1",
+            "request_name": "UploadFile",
+            "file_enc_data":encoded_file,
+            "file_orig_name": filename,
+            "scrub_options": {"scrub_method": 2},
+            "te_options": {
+                "file_name": filename,
+                "file_type": "pdf",
+                "features": ["te"],
+                "te": {"rule_id": 1}
+                }
+           }] }
+        content_type = "application/octet-stream"
+        return request(data, content_type)
 
 @app.route('/')
 @app.route('/index')
@@ -28,13 +69,16 @@ def check_files(user_id):
     for f in Files_te.query.filter(Files_te.user_id==user_id).filter(Files_te.te_status!='FOUND').all():
         if f is not None:
             #Request to check files
-            parsed_json = tpapi.query_file(md5=f.md5)
+            try:
+                parsed_json = tpapi.query_file(md5=f.md5)
+            except ConnectionError as e:
+                print("Can't connect to TPAPI", e)
+                return redirect(url_for('index')) 
             te_status = parsed_json["response"][0]["te"]['status']['label']
             if te_status == "FOUND":
                 te_verdict = parsed_json["response"][0]["te"]["te"]["combined_verdict"]
             else:
-                te_verdict = "Unknown"
-                
+                te_verdict = "Unknown"    
             #Write changed status and verdict in db
             fn = Files_te.query.filter(Files_te.md5==f.md5,Files_te.user_id==user_id).first()
             fn.te_status = te_status
@@ -46,8 +90,8 @@ def check_files(user_id):
 @app.route('/upload_file', methods=['GET', 'POST'])
 @login_required
 def upload_file():
-    if request.method == 'POST':
-        file = request.files['file']
+    if rq.method == 'POST':
+        file = rq.files['file']
         if file and allowed_file(file.filename):
             filename = secure_filename(file.filename)
             current_username = User.query.filter_by(username=current_user.username).first()
@@ -72,8 +116,12 @@ def return_cleaned_file(filename):
         flash('File is empty! Please, try again!')
         return redirect(url_for('upload_file'))
     #Request to upload file
-    parsed_json = tpapi.upload_file(encoded_file=encoded_file, filename=filename)
-
+    try:
+        parsed_json = tpapi.upload_file(encoded_file=encoded_file, filename=filename)
+    except ConnectionError as e:
+        print("Can't connect to TPAPI", e)
+        flash("Can't connect to the scrubbing server")
+        return redirect(url_for('upload_file'))
     try:
         resp_scrub = parsed_json["response"][0]["scrub"]
         resp_te = parsed_json["response"][0]["te"]
